@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
+</head>
+<body>
+
+<h3>Scan Student Card</h3>
+
+<input type="file" accept="image/*" capture="environment" id="photo">
+
+<pre id="status"></pre>
+
+<script>
+const API_URL = "https://script.google.com/macros/s/AKfycbw9GA1HinStdFGlLRjZ8EZ96M-r54hBSqF6971IM6AKJAsPFcRw64cxO0BQR0dvDd5M/exec";
+
+document.getElementById("photo").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  document.getElementById("status").innerText = "Processing image...";
+
+  const result = await Tesseract.recognize(file, "eng");
+  const text = result.data.text;
+
+  // VERY IMPORTANT: customize these regexes
+  const studentNumber =
+    (text.match(/\b\d{6,10}\b/) || [])[0] || "";
+
+  const nameMatch =
+    text.match(/Name[:\s]+([A-Z ]+)/i);
+
+  const name = nameMatch ? nameMatch[1].trim() : "";
+
+  await fetch(API_URL, {
+    method: "POST",
+    body: JSON.stringify({
+      StudentNumber,
+      Name,
+      RawText: text
+    })
+  });
+
+  document.getElementById("status").innerText =
+    "Saved:\n" + StudentNumber + "\n" + Name;
+});
+</script>
+
+</body>
+</html>
