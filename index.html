@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SS214 Practical Demonstration</title>
+  <title>Student Entry</title>
 
   <script src="https://unpkg.com/html5-qrcode"></script>
 
@@ -23,6 +23,7 @@
       margin-top: 4px;
       border-radius: 6px;
       border: 1px solid #ccc;
+      box-sizing: border-box;
     }
     button {
       margin-top: 14px;
@@ -33,6 +34,9 @@
       border: none;
       background: #007bff;
       color: white;
+    }
+    button.secondary {
+      background: #6c757d;
     }
     #reader { margin-top: 10px; }
     #status {
@@ -53,24 +57,30 @@
       text-decoration: underline;
       font-size: 15px;
     }
+    .hint {
+      font-size: 13px;
+      color: #444;
+      margin-top: 6px;
+    }
   </style>
 </head>
 <body>
 
-<h2>SS214 Practical Demonstration</h2>
+<h2>Student Entry</h2>
 
 <form id="entryForm">
   <label>Student Number</label>
-  <input id="studentNumber" placeholder="Scan or type student number" required>
+  <input id="studentNumber" placeholder="Scan or type student number" required inputmode="numeric">
 
   <button type="button" onclick="startScanner()">Scan Barcode</button>
+  <div class="hint">Tip: If the camera doesn’t open, make sure you’re on HTTPS and have allowed camera access.</div>
   <div id="reader"></div>
 
   <label>Surname</label>
-  <input id="surname" required>
+  <input id="surname" required autocomplete="off">
 
   <label>Demi</label>
-  <input id="demi" required>
+  <input id="demi" required autocomplete="off">
 
   <button type="submit">Submit</button>
 </form>
@@ -82,53 +92,86 @@
 </div>
 
 <script>
-const API_URL = "https://script.google.com/macros/s/AKfycbwYEWzJ8gJnJtCG-_Xy39GjWCiyQX5eL30ZxsSkUpkI23E0iMch5sfpcOm7nhYfqdI1/exec";
+/* =========================
+   CONFIG
+   ========================= */
+const API_URL = "PASTE_YOUR_APPS_SCRIPT_URL_HERE";
 
+/* =========================
+   ELEMENTS
+   ========================= */
 const statusEl = document.getElementById("status");
-const studentInput = document.getElementById("studentNumber");
 const formEl = document.getElementById("entryForm");
 
-let scanner = null;
+const studentInput = document.getElementById("studentNumber");
+const surnameInput = document.getElementById("surname");
+const demiInput = document.getElementById("demi");
+
+/* =========================
+   PERSIST DEMI (optional but recommended)
+   Keeps Demi across refreshes and new submissions.
+   ========================= */
+demiInput.value = localStorage.getItem("demi") || "";
+demiInput.addEventListener("input", () => {
+  localStorage.setItem("demi", demiInput.value);
+});
 
 /* =========================
    BARCODE SCANNING
    ========================= */
-function startScanner() {
+let scanner = null;
+
+async function startScanner() {
   // Don’t start twice
-  if (scanner) return;
+  if (scanner) {
+    statusEl.innerText = "Scanner already running…";
+    return;
+  }
 
-  // Create scanner instance
-  scanner = new Html5Qrcode("reader");
+  // Clear any previous reader content to avoid UI glitches
+  document.getElementById("reader").innerHTML = "";
 
-  scanner.start(
-    { facingMode: "environment" },
-    {
-      fps: 10,
-      qrbox: { width: 250, height: 150 },
-      experimentalFeatures: { useBarCodeDetectorIfSupported: true }
-    },
-    decodedText => {
-      studentInput.value = decodedText.trim();
-      statusEl.innerText = "Student number scanned ✔";
-
-      // Stop camera after successful scan
-      scanner.stop().catch(() => {});
-      scanner = null;
-
-      // Move user along
-      document.getElementById("surname").focus();
+  try {
+    const cameras = await Html5Qrcode.getCameras();
+    if (!cameras || cameras.length === 0) {
+      statusEl.innerText = "No camera found on this device.";
+      return;
     }
-  ).catch(err => {
-    statusEl.innerText = "Camera start failed: " + err;
+
+    scanner = new Html5Qrcode("reader");
+
+    statusEl.innerText = "Camera started. Point at the barcode…";
+
+    await scanner.start(
+      { facingMode: "environment" },
+      {
+        fps: 10,
+        qrbox: { width: 250, height: 150 },
+        experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+      },
+      async (decodedText) => {
+        studentInput.value = decodedText.trim();
+        statusEl.innerText = "Student number scanned ✔";
+
+        // Stop camera after successful scan
+        try { await scanner.stop(); } catch (_) {}
+        scanner = null;
+
+        // Move focus to surname for faster entry
+        surnameInput.focus();
+      },
+      () => {
+        // per-frame decode failures are normal; ignore
+      }
+    );
+
+  } catch (err) {
     console.error(err);
-    // Reset scanner state on failure
+    statusEl.innerText = "Camera start failed: " + (err?.message || err);
     scanner = null;
-  });
+  }
 }
 
-/* =========================
-   NEW SUBMISSION
-   ========================= */
 function newSubmission() {
   // Stop scanner if running
   if (scanner) {
@@ -138,9 +181,9 @@ function newSubmission() {
 
   // Clear ONLY per-student fields
   studentInput.value = "";
-  document.getElementById("surname").value = "";
+  surnameInput.value = "";
 
-  // Demi is intentionally NOT cleared
+  // Keep Demi populated (do NOT clear demiInput.value)
 
   statusEl.innerText = "Ready";
   studentInput.focus();
@@ -160,23 +203,32 @@ formEl.addEventListener("submit", async (e) => {
 
   const payload = {
     studentNumber: studentInput.value.trim(),
-    surname: document.getElementById("surname").value.trim(),
-    demi: document.getElementById("demi").value.trim()
+    surname: surnameInput.value.trim(),
+    demi: demiInput.value.trim()
   };
+
+  if (!payload.studentNumber || !payload.surname || !payload.demi) {
+    statusEl.innerText = "Please complete all fields.";
+    return;
+  }
 
   statusEl.innerText = "Saving…";
 
   try {
     await fetch(API_URL, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
 
     statusEl.innerText = "Saved ✔";
-    newSubmission(); // ready for next entry
+
+    // Prepare next entry (keeps Demi)
+    newSubmission();
+
   } catch (err) {
-    statusEl.innerText = "Save failed.";
     console.error(err);
+    statusEl.innerText = "Save failed. Check network / API URL.";
   }
 });
 </script>
