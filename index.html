@@ -70,7 +70,15 @@
 
 <form id="entryForm">
   <label>Student Number</label>
-  <input id="studentNumber" placeholder="Scan or type student number" required inputmode="numeric">
+  <input
+  id="studentNumber"
+  placeholder="Scan or type student number"
+  required
+  type="text"
+  inputmode="numeric"
+  pattern="[0-9]*"
+>
+
 
   <button type="button" onclick="startScanner()">Scan Barcode</button>
   <div class="hint">Tip: If the camera doesn’t open, make sure you’re on HTTPS and have allowed camera access.</div>
