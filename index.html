@@ -10,12 +10,23 @@
     body {
       font-family: system-ui, sans-serif;
       background: #f4f4f4;
+      margin: 0;
       padding: 15px;
       max-width: 480px;
-      margin: auto;
+      margin-inline: auto;
     }
-    h2 { text-align: center; margin-bottom: 6px; }
-    label { display: block; margin-top: 12px; font-weight: 600; }
+
+    h2 {
+      text-align: center;
+      margin-bottom: 10px;
+    }
+
+    label {
+      display: block;
+      margin-top: 12px;
+      font-weight: 600;
+    }
+
     input {
       width: 100%;
       padding: 10px;
@@ -25,6 +36,7 @@
       border: 1px solid #ccc;
       box-sizing: border-box;
     }
+
     button {
       margin-top: 14px;
       padding: 12px;
@@ -35,12 +47,9 @@
       background: #007bff;
       color: white;
     }
-    button.secondary {
-      background: #6c757d;
-    }
-    #reader { margin-top: 10px; }
+
     #status {
-      margin-top: 10px;
+      margin-top: 12px;
       padding: 10px;
       background: white;
       border-radius: 6px;
@@ -48,19 +57,46 @@
       text-align: center;
       white-space: pre-wrap;
     }
+
     .linkwrap {
       margin-top: 14px;
       text-align: center;
     }
+
     a {
       color: #007bff;
       text-decoration: underline;
       font-size: 15px;
     }
-    .hint {
-      font-size: 13px;
-      color: #444;
-      margin-top: 6px;
+
+    /* =========================
+       FULLSCREEN SCANNER MODE
+       ========================= */
+    #scannerOverlay {
+      position: fixed;
+      inset: 0;
+      background: black;
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+    }
+
+    #reader {
+      width: 100%;
+      max-width: 420px;
+    }
+
+    #scannerHint {
+      color: white;
+      margin-top: 10px;
+      font-size: 15px;
+    }
+
+    #closeScanner {
+      margin-top: 16px;
+      background: #dc3545;
     }
   </style>
 </head>
@@ -68,30 +104,24 @@
 
 <h2>SS214 Practical Demonstration</h2>
 
-  <div style="text-align:center;color:#666;font-size:12px;">
-  Build: 2026-01-14 13:55
-</div>
-
 <form id="entryForm">
   <label>Student Number</label>
   <input
-  id="studentNumber"
-  placeholder="Scan or type student number"
-  required
-  type="text"
-  inputmode="numeric"
-  pattern="[0-9]*"
->
+    id="studentNumber"
+    placeholder="Scan or type student number"
+    required
+    type="text"
+    inputmode="numeric"
+    pattern="[0-9]*"
+  >
 
-  <button type="button" onclick="startScanner()">Scan Barcode</button>
-  <div class="hint">Tip: If the camera doesn’t open, make sure you’re on HTTPS and have allowed camera access.</div>
-  <div id="reader"></div>
+  <button type="button" onclick="openScanner()">Scan Barcode</button>
 
   <label>Surname</label>
-  <input id="surname" required autocomplete="off">
+  <input id="surname" required>
 
   <label>Demi</label>
-  <input id="demi" required autocomplete="off">
+  <input id="demi" required>
 
   <button type="submit">Submit</button>
 </form>
@@ -102,26 +132,33 @@
   <a href="#" onclick="newSubmission(); return false;">New submission</a>
 </div>
 
+<!-- FULLSCREEN SCANNER -->
+<div id="scannerOverlay">
+  <div id="reader"></div>
+  <div id="scannerHint">Align the barcode inside the frame</div>
+  <button id="closeScanner" onclick="closeScanner()">Cancel</button>
+</div>
+
 <script>
 /* =========================
    CONFIG
    ========================= */
-const API_URL = "https://script.google.com/macros/s/AKfycbwYEWzJ8gJnJtCG-_Xy39GjWCiyQX5eL30ZxsSkUpkI23E0iMch5sfpcOm7nhYfqdI1/exec";
+const API_URL = "PASTE_YOUR_APPS_SCRIPT_URL_HERE";
 
-  
 /* =========================
    ELEMENTS
    ========================= */
-const statusEl = document.getElementById("status");
 const formEl = document.getElementById("entryForm");
+const statusEl = document.getElementById("status");
 
 const studentInput = document.getElementById("studentNumber");
 const surnameInput = document.getElementById("surname");
 const demiInput = document.getElementById("demi");
 
+const overlay = document.getElementById("scannerOverlay");
+
 /* =========================
-   PERSIST DEMI (optional but recommended)
-   Keeps Demi across refreshes and new submissions.
+   PERSIST DEMI
    ========================= */
 demiInput.value = localStorage.getItem("demi") || "";
 demiInput.addEventListener("input", () => {
@@ -129,34 +166,25 @@ demiInput.addEventListener("input", () => {
 });
 
 /* =========================
-   BARCODE SCANNING
+   BARCODE SCANNER
    ========================= */
 let scanner = null;
 
-async function startScanner() {
-  // Don’t start twice
-  if (scanner) {
-    statusEl.innerText = "Scanner already running…";
-    return;
-  }
+function openScanner() {
+  overlay.style.display = "flex";
+  startScanner();
+}
 
-  // Clear any previous reader content to avoid UI glitches
+async function startScanner() {
+  if (scanner) return;
+
   document.getElementById("reader").innerHTML = "";
+  scanner = new Html5Qrcode("reader");
+
+  const boxWidth = Math.min(380, Math.floor(window.innerWidth * 0.9));
+  const boxHeight = Math.max(55, Math.floor(boxWidth / 5.2));
 
   try {
-    const cameras = await Html5Qrcode.getCameras();
-    if (!cameras || cameras.length === 0) {
-      statusEl.innerText = "No camera found on this device.";
-      return;
-    }
-
-    scanner = new Html5Qrcode("reader");
-
-    statusEl.innerText = "Camera started. Point at the barcode…";
-
-    const boxWidth = Math.min(380, Math.floor(window.innerWidth * 0.9));
-    const boxHeight = Math.max(55, Math.floor(boxWidth / 5.2)); // wide + short
-    
     await scanner.start(
       { facingMode: "environment" },
       {
@@ -164,56 +192,51 @@ async function startScanner() {
         qrbox: { width: boxWidth, height: boxHeight },
         videoConstraints: {
           facingMode: "environment",
-          width:  { ideal: 1280 },
+          width: { ideal: 1280 },
           height: { ideal: 720 }
         },
         experimentalFeatures: { useBarCodeDetectorIfSupported: true }
       },
-      (decodedText) => {
-        studentInput.value = decodedText.trim();
-        statusEl.innerText = "Student number scanned ✔";
-      
-        if (scanner) {
-          scanner.stop().catch(() => {});
-          scanner = null;
-        }
-      
-        surnameInput.focus();
-      }
-
+      onScanSuccess
     );
-  
-    } catch (err) {
-      console.error(err);
-      statusEl.innerText = "Camera start failed: " + (err?.message || err);
-      scanner = null;
-    }
+  } catch (err) {
+    statusEl.innerText = "Camera start failed: " + err;
+    closeScanner();
   }
+}
 
-function newSubmission() {
-  // Stop scanner if running
+function onScanSuccess(decodedText) {
+  studentInput.value = decodedText.trim();
+
+  closeScanner();
+
+  statusEl.innerText = "Student number scanned ✔";
+  surnameInput.focus();
+}
+
+function closeScanner() {
   if (scanner) {
     scanner.stop().catch(() => {});
     scanner = null;
   }
+  overlay.style.display = "none";
+}
 
-  // Clear ONLY per-student fields
+/* =========================
+   FORM CONTROL
+   ========================= */
+function newSubmission() {
+  closeScanner();
+
   studentInput.value = "";
   surnameInput.value = "";
-
-  // Keep Demi populated (do NOT clear demiInput.value)
-
   statusEl.innerText = "Ready";
   studentInput.focus();
 }
 
-/* =========================
-   SUBMIT
-   ========================= */
 formEl.addEventListener("submit", async (e) => {
   e.preventDefault();
 
-  // Let browser show required-field messages if missing
   if (!formEl.checkValidity()) {
     formEl.reportValidity();
     return;
@@ -225,11 +248,6 @@ formEl.addEventListener("submit", async (e) => {
     demi: demiInput.value.trim()
   };
 
-  if (!payload.studentNumber || !payload.surname || !payload.demi) {
-    statusEl.innerText = "Please complete all fields.";
-    return;
-  }
-
   statusEl.innerText = "Saving…";
 
   try {
@@ -239,14 +257,10 @@ formEl.addEventListener("submit", async (e) => {
     });
 
     statusEl.innerText = "Saved ✔";
-    
-
-    // Prepare next entry (keeps Demi)
     newSubmission();
 
   } catch (err) {
-    console.error(err);
-    statusEl.innerText = "Save failed. Check network / API URL.";
+    statusEl.innerText = "Save failed. Check network / API URL";
   }
 });
 </script>
