@@ -69,7 +69,7 @@
 <h2>SS214 Practical Demonstration</h2>
 
   <div style="text-align:center;color:#666;font-size:12px;">
-  Build: 2026-01-14 12:38
+  Build: 2026-01-14 13:55
 </div>
 
 <form id="entryForm">
@@ -154,35 +154,30 @@ async function startScanner() {
 
     statusEl.innerText = "Camera started. Point at the barcode…";
 
+    const boxWidth = Math.min(380, Math.floor(window.innerWidth * 0.9));
+    const boxHeight = Math.max(55, Math.floor(boxWidth / 5.2)); // wide + short
+    
     await scanner.start(
       { facingMode: "environment" },
       {
-        fps: 10,
-        qrbox: { width: 250, height: 150 },
+        fps: 15,
+        qrbox: { width: boxWidth, height: boxHeight },
+        videoConstraints: {
+          facingMode: "environment",
+          width:  { ideal: 1280 },
+          height: { ideal: 720 }
+        },
         experimentalFeatures: { useBarCodeDetectorIfSupported: true }
       },
-      async (decodedText) => {
-        studentInput.value = decodedText.trim();
-        statusEl.innerText = "Student number scanned ✔";
-
-        // Stop camera after successful scan
-        try { await scanner.stop(); } catch (_) {}
-        scanner = null;
-
-        // Move focus to surname for faster entry
-        surnameInput.focus();
-      },
-      () => {
-        // per-frame decode failures are normal; ignore
-      }
+      onScanSuccess
     );
-
-  } catch (err) {
-    console.error(err);
-    statusEl.innerText = "Camera start failed: " + (err?.message || err);
-    scanner = null;
+  
+    } catch (err) {
+      console.error(err);
+      statusEl.innerText = "Camera start failed: " + (err?.message || err);
+      scanner = null;
+    }
   }
-}
 
 function newSubmission() {
   // Stop scanner if running
