@@ -1,47 +1,165 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Card Scanner</title>
+
+  <!-- OCR library -->
   <script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
+
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      text-align: center;
+      padding: 12px;
+      background: #f6f6f6;
+    }
+    h2 { margin-bottom: 8px; }
+    input[type="file"] {
+      font-size: 16px;
+      margin: 12px 0;
+    }
+    #status {
+      white-space: pre-wrap;
+      font-size: 14px;
+      background: #fff;
+      padding: 10px;
+      border-radius: 6px;
+      margin-top: 10px;
+    }
+  </style>
 </head>
 <body>
 
-<h3>Scan Student Card</h3>
+<h2>Scan Card</h2>
 
-<input type="file" accept="image/*" capture="environment" id="photo">
+<input
+  type="file"
+  accept="image/*"
+  capture="environment"
+  id="photo"
+/>
 
-<pre id="status"></pre>
+<div id="status">Ready</div>
 
 <script>
+/* =========================
+   CONFIG
+   ========================= */
 const API_URL = "https://script.google.com/macros/s/AKfycbw9GA1HinStdFGlLRjZ8EZ96M-r54hBSqF6971IM6AKJAsPFcRw64cxO0BQR0dvDd5M/exec";
 
+/* =========================
+   HELPERS
+   ========================= */
+function normalize(text) {
+  return text
+    .replace(/\r/g, "")
+    .replace(/\n+/g, "\n")
+    .replace(/[ ]{2,}/g, " ")
+    .trim();
+}
+
+function extractIdNumber(text) {
+  // Stellenbosch cards use an 8-digit numeric ID
+  const match = text.match(/\b\d{8}\b/);
+  return match ? match[0] : "";
+}
+
+function extractTitleAndInitials(text) {
+  const match = text.match(
+    /\b(Dr|Mr|Ms|Mrs|Prof)\s*([A-Z])\b/i
+  );
+
+  if (!match) return { title: "", initials: "" };
+
+  return {
+    title: match[1],
+    initials: match[2]
+  };
+}
+
+function extractSurname(text) {
+  const lines = text.split("\n");
+
+  for (const line of lines) {
+    if (
+      /^[A-Z][a-z]{2,}$/.test(line) &&
+      !["STAFF", "PERSONEL", "EZABASEBENZI"].includes(line)
+    ) {
+      return line;
+    }
+  }
+  return "";
+}
+
+/* =========================
+   MAIN FLOW
+   ========================= */
 document.getElementById("photo").addEventListener("change", async (e) => {
   const file = e.target.files[0];
-  document.getElementById("status").innerText = "Processing image...";
+  if (!file) return;
 
-  const result = await Tesseract.recognize(file, "eng");
-  const text = result.data.text;
+  const status = document.getElementById("status");
+  status.innerText = "Reading card…\nPlease hold steady.";
 
-  // VERY IMPORTANT: customize these regexes
-  const studentNumber =
-    (text.match(/\b\d{6,10}\b/) || [])[0] || "";
+  try {
+    const result = await Tesseract.recognize(file, "eng", {
+      logger: m => {
+        if (m.status === "recognizing text") {
+          status.innerText =
+            `Reading card…\n${Math.round(m.progress * 100)}%`;
+        }
+      }
+    });
 
-  const nameMatch =
-    text.match(/Name[:\s]+([A-Z ]+)/i);
+    const rawText = normalize(result.data.text);
 
-  const name = nameMatch ? nameMatch[1].trim() : "";
+    const idNumber = extractIdNumber(rawText);
+    const { title, initials } = extractTitleAndInitials(rawText);
+    const surname = extractSurname(rawText);
 
-  await fetch(API_URL, {
-    method: "POST",
-    body: JSON.stringify({
-      StudentNumber,
-      Name,
-      RawText: text
-    })
-  });
+    if (!idNumber || !surname) {
+      alert(
+        "Could not read the card reliably.\n" +
+        "Please retake the photo with better lighting."
+      );
+      status.innerText = rawText;
+      return;
+    }
 
-  document.getElementById("status").innerText =
-    "Saved:\n" + StudentNumber + "\n" + Name;
+    const confirmText =
+      `ID: ${idNumber}\n` +
+      `${title} ${initials} ${surname}\n\n` +
+      `Save this entry?`;
+
+    if (!confirm(confirmText)) {
+      status.innerText = "Cancelled.\n\n" + rawText;
+      return;
+    }
+
+    await fetch(API_URL, {
+      method: "POST",
+      body: JSON.stringify({
+        idNumber,
+        title,
+        initials,
+        surname,
+        rawText
+      })
+    });
+
+    status.innerText =
+      "Saved successfully ✔\n\n" +
+      `${idNumber}\n${title} ${initials} ${surname}`;
+
+    // Reset input so the same file can be scanned again
+    e.target.value = "";
+
+  } catch (err) {
+    alert("Error processing image.");
+    console.error(err);
+    status.innerText = "Error:\n" + err.message;
+  }
 });
 </script>
 
