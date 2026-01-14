@@ -169,7 +169,18 @@ async function startScanner() {
         },
         experimentalFeatures: { useBarCodeDetectorIfSupported: true }
       },
-      onScanSuccess
+      (decodedText) => {
+        studentInput.value = decodedText.trim();
+        statusEl.innerText = "Student number scanned ✔";
+      
+        if (scanner) {
+          scanner.stop().catch(() => {});
+          scanner = null;
+        }
+      
+        surnameInput.focus();
+      }
+
     );
   
     } catch (err) {
