@@ -2,165 +2,145 @@
 <html lang="en">
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Card Scanner</title>
+  <title>Student Entry</title>
 
-  <!-- OCR library -->
-  <script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode"></script>
 
   <style>
     body {
       font-family: system-ui, sans-serif;
-      text-align: center;
-      padding: 12px;
-      background: #f6f6f6;
+      background: #f4f4f4;
+      padding: 15px;
+      max-width: 480px;
+      margin: auto;
     }
-    h2 { margin-bottom: 8px; }
-    input[type="file"] {
+    h2 {
+      text-align: center;
+    }
+    label {
+      display: block;
+      margin-top: 12px;
+      font-weight: 600;
+    }
+    input {
+      width: 100%;
+      padding: 10px;
       font-size: 16px;
-      margin: 12px 0;
+      margin-top: 4px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+    }
+    button {
+      margin-top: 14px;
+      padding: 12px;
+      width: 100%;
+      font-size: 16px;
+      border-radius: 6px;
+      border: none;
+      background: #007bff;
+      color: white;
+    }
+    #reader {
+      margin-top: 10px;
     }
     #status {
-      white-space: pre-wrap;
-      font-size: 14px;
-      background: #fff;
-      padding: 10px;
-      border-radius: 6px;
       margin-top: 10px;
+      padding: 10px;
+      background: white;
+      border-radius: 6px;
+      font-size: 14px;
+      text-align: center;
     }
   </style>
 </head>
 <body>
 
-<h2>Scan Card</h2>
+<h2>Student Entry</h2>
 
-<input
-  type="file"
-  accept="image/*"
-  capture="environment"
-  id="photo"
-/>
+<label>Student Number</label>
+<input id="studentNumber" placeholder="Scan or type student number">
 
-<div id="status">Ready</div>
+<button type="button" onclick="startScanner()">Scan Barcode</button>
+<div id="reader"></div>
+
+<label>Surname</label>
+<input id="surname">
+
+<label>Demi</label>
+<input id="demi">
+
+<button onclick="submitForm()">Submit</button>
+
+<div id="status"></div>
 
 <script>
-/* =========================
-   CONFIG
-   ========================= */
-const API_URL = "https://script.google.com/macros/s/AKfycbw9GA1HinStdFGlLRjZ8EZ96M-r54hBSqF6971IM6AKJAsPFcRw64cxO0BQR0dvDd5M/exec";
+const API_URL = "PASTE_YOUR_APPS_SCRIPT_URL_HERE";
+
+const statusEl = document.getElementById("status");
+const studentInput = document.getElementById("studentNumber");
+
+let scanner = null;
 
 /* =========================
-   HELPERS
+   BARCODE SCANNING
    ========================= */
-function normalize(text) {
-  return text
-    .replace(/\r/g, "")
-    .replace(/\n+/g, "\n")
-    .replace(/[ ]{2,}/g, " ")
-    .trim();
-}
+function startScanner() {
+  if (scanner) return;
 
-function extractIdNumber(text) {
-  // Stellenbosch cards use an 8-digit numeric ID
-  const match = text.match(/\b\d{8}\b/);
-  return match ? match[0] : "";
-}
+  scanner = new Html5Qrcode("reader");
 
-function extractTitleAndInitials(text) {
-  const match = text.match(
-    /\b(Dr|Mr|Ms|Mrs|Prof)\s*([A-Z])\b/i
-  );
-
-  if (!match) return { title: "", initials: "" };
-
-  return {
-    title: match[1],
-    initials: match[2]
-  };
-}
-
-function extractSurname(text) {
-  const lines = text.split("\n");
-
-  for (const line of lines) {
-    if (
-      /^[A-Z][a-z]{2,}$/.test(line) &&
-      !["STAFF", "PERSONEL", "EZABASEBENZI"].includes(line)
-    ) {
-      return line;
-    }
-  }
-  return "";
-}
-
-/* =========================
-   MAIN FLOW
-   ========================= */
-document.getElementById("photo").addEventListener("change", async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-
-  const status = document.getElementById("status");
-  status.innerText = "Reading card…\nPlease hold steady.";
-
-  try {
-    const result = await Tesseract.recognize(file, "eng", {
-      logger: m => {
-        if (m.status === "recognizing text") {
-          status.innerText =
-            `Reading card…\n${Math.round(m.progress * 100)}%`;
-        }
+  scanner.start(
+    { facingMode: "environment" },
+    {
+      fps: 10,
+      qrbox: { width: 250, height: 150 },
+      experimentalFeatures: {
+        useBarCodeDetectorIfSupported: true
       }
-    });
+    },
+    decodedText => {
+      studentInput.value = decodedText;
+      statusEl.innerText = "Student number scanned ✔";
 
-    const rawText = normalize(result.data.text);
-
-    const idNumber = extractIdNumber(rawText);
-    const { title, initials } = extractTitleAndInitials(rawText);
-    const surname = extractSurname(rawText);
-
-    if (!idNumber || !surname) {
-      alert(
-        "Could not read the card reliably.\n" +
-        "Please retake the photo with better lighting."
-      );
-      status.innerText = rawText;
-      return;
+      scanner.stop();
+      scanner = null;
     }
-
-    const confirmText =
-      `ID: ${idNumber}\n` +
-      `${title} ${initials} ${surname}\n\n` +
-      `Save this entry?`;
-
-    if (!confirm(confirmText)) {
-      status.innerText = "Cancelled.\n\n" + rawText;
-      return;
-    }
-
-    await fetch(API_URL, {
-      method: "POST",
-      body: JSON.stringify({
-        idNumber,
-        title,
-        initials,
-        surname,
-        rawText
-      })
-    });
-
-    status.innerText =
-      "Saved successfully ✔\n\n" +
-      `${idNumber}\n${title} ${initials} ${surname}`;
-
-    // Reset input so the same file can be scanned again
-    e.target.value = "";
-
-  } catch (err) {
-    alert("Error processing image.");
+  ).catch(err => {
+    statusEl.innerText = "Camera error.";
     console.error(err);
-    status.innerText = "Error:\n" + err.message;
+  });
+}
+
+/* =========================
+   SUBMIT
+   ========================= */
+function submitForm() {
+  const payload = {
+    studentNumber: studentInput.value.trim(),
+    surname: document.getElementById("surname").value.trim(),
+    demi: document.getElementById("demi").value.trim()
+  };
+
+  if (!payload.studentNumber || !payload.surname || !payload.demi) {
+    statusEl.innerText = "Please complete all fields.";
+    return;
   }
-});
+
+  fetch(API_URL, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  }).then(() => {
+    statusEl.innerText = "Saved ✔";
+
+    // Reset form
+    studentInput.value = "";
+    document.getElementById("surname").value = "";
+    document.getElementById("demi").value = "";
+  }).catch(err => {
+    statusEl.innerText = "Save failed.";
+    console.error(err);
+  });
+}
 </script>
 
 </body>
