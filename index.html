@@ -136,6 +136,17 @@ function newSubmission() {
     scanner = null;
   }
 
+  // Clear ONLY per-student fields
+  studentInput.value = "";
+  document.getElementById("surname").value = "";
+
+  // Demi is intentionally NOT cleared
+
+  statusEl.innerText = "Ready";
+  studentInput.focus();
+}
+
+
   // Clear inputs
   studentInput.value = "";
   document.getElementById("surname").value = "";
