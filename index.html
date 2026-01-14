@@ -14,14 +14,8 @@
       max-width: 480px;
       margin: auto;
     }
-    h2 {
-      text-align: center;
-    }
-    label {
-      display: block;
-      margin-top: 12px;
-      font-weight: 600;
-    }
+    h2 { text-align: center; margin-bottom: 6px; }
+    label { display: block; margin-top: 12px; font-weight: 600; }
     input {
       width: 100%;
       padding: 10px;
@@ -40,9 +34,7 @@
       background: #007bff;
       color: white;
     }
-    #reader {
-      margin-top: 10px;
-    }
+    #reader { margin-top: 10px; }
     #status {
       margin-top: 10px;
       padding: 10px;
@@ -50,34 +42,51 @@
       border-radius: 6px;
       font-size: 14px;
       text-align: center;
+      white-space: pre-wrap;
+    }
+    .linkwrap {
+      margin-top: 14px;
+      text-align: center;
+    }
+    a {
+      color: #007bff;
+      text-decoration: underline;
+      font-size: 15px;
     }
   </style>
 </head>
 <body>
 
-<h2>Student Entry</h2>
+<h2>SS214 Practical Demonstration</h2>
 
-<label>Student Number</label>
-<input id="studentNumber" placeholder="Scan or type student number">
+<form id="entryForm">
+  <label>Student Number</label>
+  <input id="studentNumber" placeholder="Scan or type student number" required>
 
-<button type="button" onclick="startScanner()">Scan Barcode</button>
-<div id="reader"></div>
+  <button type="button" onclick="startScanner()">Scan Barcode</button>
+  <div id="reader"></div>
 
-<label>Surname</label>
-<input id="surname">
+  <label>Surname</label>
+  <input id="surname" required>
 
-<label>Demi</label>
-<input id="demi">
+  <label>Demi</label>
+  <input id="demi" required>
 
-<button onclick="submitForm()">Submit</button>
+  <button type="submit">Submit</button>
+</form>
 
-<div id="status"></div>
+<div id="status">Ready</div>
+
+<div class="linkwrap">
+  <a href="#" onclick="newSubmission(); return false;">New submission</a>
+</div>
 
 <script>
 const API_URL = "https://script.google.com/macros/s/AKfycbwYEWzJ8gJnJtCG-_Xy39GjWCiyQX5eL30ZxsSkUpkI23E0iMch5sfpcOm7nhYfqdI1/exec";
 
 const statusEl = document.getElementById("status");
 const studentInput = document.getElementById("studentNumber");
+const formEl = document.getElementById("entryForm");
 
 let scanner = null;
 
@@ -85,8 +94,10 @@ let scanner = null;
    BARCODE SCANNING
    ========================= */
 function startScanner() {
+  // Don’t start twice
   if (scanner) return;
 
+  // Create scanner instance
   scanner = new Html5Qrcode("reader");
 
   scanner.start(
@@ -94,53 +105,79 @@ function startScanner() {
     {
       fps: 10,
       qrbox: { width: 250, height: 150 },
-      experimentalFeatures: {
-        useBarCodeDetectorIfSupported: true
-      }
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true }
     },
     decodedText => {
-      studentInput.value = decodedText;
+      studentInput.value = decodedText.trim();
       statusEl.innerText = "Student number scanned ✔";
 
-      scanner.stop();
+      // Stop camera after successful scan
+      scanner.stop().catch(() => {});
       scanner = null;
+
+      // Move user along
+      document.getElementById("surname").focus();
     }
   ).catch(err => {
-    statusEl.innerText = "Camera error.";
+    statusEl.innerText = "Camera start failed: " + err;
     console.error(err);
+    // Reset scanner state on failure
+    scanner = null;
   });
+}
+
+/* =========================
+   NEW SUBMISSION
+   ========================= */
+function newSubmission() {
+  // Stop scanner if running
+  if (scanner) {
+    scanner.stop().catch(() => {});
+    scanner = null;
+  }
+
+  // Clear inputs
+  studentInput.value = "";
+  document.getElementById("surname").value = "";
+  document.getElementById("demi").value = "";
+
+  statusEl.innerText = "Ready";
+  studentInput.focus();
 }
 
 /* =========================
    SUBMIT
    ========================= */
-function submitForm() {
+formEl.addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  // Let browser show required-field messages if missing
+  if (!formEl.checkValidity()) {
+    formEl.reportValidity();
+    return;
+  }
+
   const payload = {
     studentNumber: studentInput.value.trim(),
     surname: document.getElementById("surname").value.trim(),
     demi: document.getElementById("demi").value.trim()
   };
 
-  if (!payload.studentNumber || !payload.surname || !payload.demi) {
-    statusEl.innerText = "Please complete all fields.";
-    return;
-  }
+  statusEl.innerText = "Saving…";
 
-  fetch(API_URL, {
-    method: "POST",
-    body: JSON.stringify(payload)
-  }).then(() => {
+  try {
+    await fetch(API_URL, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+
     statusEl.innerText = "Saved ✔";
-
-    // Reset form
-    studentInput.value = "";
-    document.getElementById("surname").value = "";
-    document.getElementById("demi").value = "";
-  }).catch(err => {
+    newSubmission(); // ready for next entry
+  } catch (err) {
     statusEl.innerText = "Save failed.";
     console.error(err);
-  });
-}
+  }
+});
 </script>
 
 </body>
