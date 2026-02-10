@@ -94,13 +94,8 @@
       box-shadow: 0 0 0 3px rgba(11,94,215,.15);
     }
 
-    .row {
-      display: flex;
-      gap: 10px;
-      margin-top: 12px;
-    }
-
     .btn {
+      margin-top: 12px;
       padding: 12px;
       width: 100%;
       font-size: 16px;
@@ -112,6 +107,7 @@
     }
 
     .btn.secondary { background: #334155; }
+    .btn.danger { background: var(--danger); }
 
     .status {
       margin-top: 12px;
@@ -161,11 +157,32 @@
       box-sizing: border-box;
     }
 
-    #reader {
+    /* Wrapper so we can draw our own aim box on top of the video */
+    #readerWrap {
+      position: relative;
       width: 100%;
       max-width: 460px;
       border-radius: 14px;
       overflow: hidden;
+    }
+
+    #reader {
+      width: 100%;
+    }
+
+    /* Always-visible "reader box" overlay (aim box) */
+    #aimBox {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      border: 3px solid rgba(255,255,255,.9);
+      border-radius: 12px;
+      box-sizing: border-box;
+      width: 360px;  /* JS will resize */
+      height: 70px;  /* JS will resize */
+      pointer-events: none;
+      box-shadow: 0 0 0 9999px rgba(0,0,0,.25); /* subtle dim outside */
     }
 
     #scannerHint {
@@ -174,11 +191,12 @@
       font-size: 14px;
       text-align: center;
       line-height: 1.3;
+      max-width: 520px;
     }
 
-    #closeScanner {
+    #closeScannerBtn {
       margin-top: 16px;
-      background: var(--danger);
+      max-width: 520px;
     }
   </style>
 </head>
@@ -204,18 +222,17 @@
             pattern="[0-9]*"
             autocomplete="off"
           >
+          <button class="btn secondary" type="button" onclick="openScanner()">Scan Barcode</button>
           <div class="tiny">Surname will auto-fill if found (still editable).</div>
-
-          <div class="row">
-            <button class="btn secondary" type="button" onclick="openScanner()">Scan</button>
-            <button class="btn" type="submit">Submit</button>
-          </div>
 
           <label>Surname</label>
           <input id="surname" required autocomplete="off">
 
           <label>Demi</label>
           <input id="demi" required autocomplete="off">
+
+          <!-- Submit at the bottom (as requested) -->
+          <button class="btn" type="submit">Submit</button>
         </form>
 
         <div id="status" class="status">Ready</div>
@@ -234,14 +251,17 @@
 
   <!-- Fullscreen scanner -->
   <div id="scannerOverlay">
-    <div id="reader"></div>
-    <div id="scannerHint">Align the barcode inside the frame</div>
-    <button id="closeScanner" class="btn" type="button" onclick="closeScanner()">Cancel</button>
+    <div id="readerWrap">
+      <div id="reader"></div>
+      <div id="aimBox"></div>
+    </div>
+    <div id="scannerHint">Align the barcode inside the box. Hold steady for a second.</div>
+    <button id="closeScannerBtn" class="btn danger" type="button" onclick="closeScanner()">Cancel</button>
   </div>
 
 <script>
   // ====== CONFIG ======
-  // This is your Apps Script Web App URL (must end with /exec)
+  // Your Apps Script Web App URL (must end with /exec)
   const API_URL = "https://script.google.com/macros/s/AKfycbxPWtN3uOoi1fnBZSYKxxh9fm8q8QLoPxvG7k7XpFHk6HbN0UyMXDPrhxIfKuHBLO1W/exec";
 
   // ====== ELEMENTS ======
@@ -251,6 +271,7 @@
   const surnameInput = document.getElementById("surname");
   const demiInput = document.getElementById("demi");
   const overlay = document.getElementById("scannerOverlay");
+  const aimBoxEl = document.getElementById("aimBox");
 
   // Keep Demi across submissions + refresh
   demiInput.value = localStorage.getItem("demi") || "";
@@ -263,7 +284,7 @@
 
   function setStatus(msg){ statusEl.innerText = msg; }
 
-  // ====== BACKEND CALLS (Apps Script endpoint) ======
+  // ====== BACKEND LOOKUP ======
   async function lookupSurname(studentNumber) {
     const sn = String(studentNumber || "").trim();
     if (!sn) return;
@@ -302,7 +323,6 @@
     }
   }
 
-  // Debounced lookup while typing
   function scheduleLookup() {
     clearTimeout(lookupTimer);
     lookupTimer = setTimeout(() => lookupSurname(studentInput.value), 300);
@@ -318,6 +338,13 @@
   // ====== SCANNER ======
   let scanner = null;
 
+  function computeScanBox() {
+    // Wide, short scan box for 42mm x 6mm barcode (approx 7:1)
+    const boxWidth = Math.min(420, Math.floor(window.innerWidth * 0.92));
+    const boxHeight = Math.max(55, Math.floor(boxWidth / 5.2)); // ~5:1 to 7:1 feels good
+    return { boxWidth, boxHeight };
+  }
+
   function openScanner() {
     overlay.style.display = "flex";
     startScanner();
@@ -329,9 +356,11 @@
     document.getElementById("reader").innerHTML = "";
     scanner = new Html5Qrcode("reader");
 
-    // Wide, short scan box for 42mm x 6mm barcode
-    const boxWidth = Math.min(420, Math.floor(window.innerWidth * 0.92));
-    const boxHeight = Math.max(55, Math.floor(boxWidth / 5.2));
+    const { boxWidth, boxHeight } = computeScanBox();
+
+    // Ensure our visible aim box matches the qrbox
+    aimBoxEl.style.width = boxWidth + "px";
+    aimBoxEl.style.height = boxHeight + "px";
 
     try {
       await scanner.start(
@@ -361,10 +390,7 @@
     closeScanner();
 
     setStatus("Student number scanned ✔\nLooking up surname…");
-
-    lookupSurname(sn).finally(() => {
-      surnameInput.focus();
-    });
+    lookupSurname(sn).finally(() => surnameInput.focus());
   }
 
   function closeScanner() {
@@ -380,7 +406,7 @@
     closeScanner();
     studentInput.value = "";
     surnameInput.value = "";
-    // keep demi
+    // keep Demi
     lastLookupStudent = "";
     surnameWasAutoFilled = false;
     setStatus("Ready");
@@ -417,6 +443,14 @@
       console.error(err);
       setStatus("Save failed. Check network / API URL");
     }
+  });
+
+  // If the user rotates the phone while scanner is open, keep the aim box sized sensibly
+  window.addEventListener("resize", () => {
+    if (!overlay || overlay.style.display !== "flex") return;
+    const { boxWidth, boxHeight } = computeScanBox();
+    aimBoxEl.style.width = boxWidth + "px";
+    aimBoxEl.style.height = boxHeight + "px";
   });
 </script>
 
