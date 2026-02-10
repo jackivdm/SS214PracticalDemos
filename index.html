@@ -81,6 +81,8 @@
       justify-content: center;
       align-items: center;
       z-index: 9999;
+      padding: 12px;
+      box-sizing: border-box;
     }
 
     #reader {
@@ -92,11 +94,20 @@
       color: white;
       margin-top: 10px;
       font-size: 15px;
+      text-align: center;
+      opacity: 0.9;
     }
 
     #closeScanner {
       margin-top: 16px;
       background: #dc3545;
+    }
+
+    .small {
+      font-size: 12px;
+      color: #333;
+      margin-top: 6px;
+      text-align: center;
     }
   </style>
 </head>
@@ -113,15 +124,17 @@
     type="text"
     inputmode="numeric"
     pattern="[0-9]*"
+    autocomplete="off"
   >
+  <div class="small">Tip: After scanning/typing, surname will auto-fill if found in the class list (you can still edit it).</div>
 
   <button type="button" onclick="openScanner()">Scan Barcode</button>
 
   <label>Surname</label>
-  <input id="surname" required>
+  <input id="surname" required autocomplete="off">
 
   <label>Demi</label>
-  <input id="demi" required>
+  <input id="demi" required autocomplete="off">
 
   <button type="submit">Submit</button>
 </form>
@@ -136,14 +149,16 @@
 <div id="scannerOverlay">
   <div id="reader"></div>
   <div id="scannerHint">Align the barcode inside the frame</div>
-  <button id="closeScanner" onclick="closeScanner()">Cancel</button>
+  <button id="closeScanner" type="button" onclick="closeScanner()">Cancel</button>
 </div>
 
 <script>
 /* =========================
    CONFIG
-   ========================= */
-const API_URL = "https://script.google.com/macros/s/AKfycbwYEWzJ8gJnJtCG-_Xy39GjWCiyQX5eL30ZxsSkUpkI23E0iMch5sfpcOm7nhYfqdI1/exec";
+   =========================
+   Your Apps Script endpoint (/exec)
+*/
+const API_URL = "PASTE_YOUR_APPS_SCRIPT_URL_HERE";
 
 /* =========================
    ELEMENTS
@@ -158,11 +173,87 @@ const demiInput = document.getElementById("demi");
 const overlay = document.getElementById("scannerOverlay");
 
 /* =========================
-   PERSIST DEMI
+   PERSIST DEMI (kept across submissions + refresh)
    ========================= */
 demiInput.value = localStorage.getItem("demi") || "";
 demiInput.addEventListener("input", () => {
   localStorage.setItem("demi", demiInput.value);
+});
+
+/* =========================
+   Surname lookup state
+   ========================= */
+let lastLookupStudent = "";
+let lookupTimer = null;
+let surnameWasAutoFilled = false;
+
+/* =========================
+   BACKEND CALLS
+   ========================= */
+async function lookupSurname(studentNumber) {
+  const sn = String(studentNumber || "").trim();
+  if (!sn) return;
+
+  // Avoid repeated identical lookups
+  if (sn === lastLookupStudent) return;
+  lastLookupStudent = sn;
+
+  statusEl.innerText = "Looking up surname…";
+
+  try {
+    const res = await fetch(API_URL, {
+      method: "POST",
+      body: JSON.stringify({ action: "lookup", studentNumber: sn })
+    });
+
+    const data = await res.json();
+
+    if (data && data.ok && data.found && data.surname) {
+      // Only auto-fill if user hasn't typed a different surname already
+      // OR if the current value is empty OR was previously auto-filled.
+      const current = surnameInput.value.trim();
+      if (!current || surnameWasAutoFilled) {
+        surnameInput.value = data.surname;
+        surnameWasAutoFilled = true;
+      }
+      statusEl.innerText = "Surname found ✔ (editable)";
+    } else if (data && data.ok) {
+      statusEl.innerText = "Surname not found in class list (you can type it).";
+      surnameWasAutoFilled = false;
+    } else {
+      statusEl.innerText = "Lookup failed (you can type surname).";
+      surnameWasAutoFilled = false;
+    }
+  } catch (err) {
+    console.error(err);
+    statusEl.innerText = "Lookup failed (offline?) — type surname manually.";
+    surnameWasAutoFilled = false;
+  }
+}
+
+/* =========================
+   Trigger lookups:
+   - After scanning
+   - After typing (debounced)
+   ========================= */
+function scheduleLookup() {
+  clearTimeout(lookupTimer);
+  lookupTimer = setTimeout(() => {
+    lookupSurname(studentInput.value);
+  }, 350);
+}
+
+// When user types student number
+studentInput.addEventListener("input", () => {
+  // If they change student number manually, surname is no longer considered auto-filled
+  // (unless we fill it again from lookup)
+  surnameWasAutoFilled = false;
+  scheduleLookup();
+});
+
+// When user leaves the student field (extra reliability)
+studentInput.addEventListener("blur", () => {
+  lookupSurname(studentInput.value);
 });
 
 /* =========================
@@ -181,7 +272,8 @@ async function startScanner() {
   document.getElementById("reader").innerHTML = "";
   scanner = new Html5Qrcode("reader");
 
-  const boxWidth = Math.min(380, Math.floor(window.innerWidth * 0.9));
+  // Wide, short scan box for 42mm x 6mm barcode (approx 7:1)
+  const boxWidth = Math.min(380, Math.floor(window.innerWidth * 0.92));
   const boxHeight = Math.max(55, Math.floor(boxWidth / 5.2));
 
   try {
@@ -200,18 +292,24 @@ async function startScanner() {
       onScanSuccess
     );
   } catch (err) {
-    statusEl.innerText = "Camera start failed: " + err;
+    console.error(err);
+    statusEl.innerText = "Camera start failed: " + (err?.message || err);
     closeScanner();
   }
 }
 
 function onScanSuccess(decodedText) {
-  studentInput.value = decodedText.trim();
+  const sn = decodedText.trim();
 
+  studentInput.value = sn;
   closeScanner();
 
-  statusEl.innerText = "Student number scanned ✔";
-  surnameInput.focus();
+  statusEl.innerText = "Student number scanned ✔\nLooking up surname…";
+
+  // Auto-lookup surname and then guide user
+  lookupSurname(sn).finally(() => {
+    surnameInput.focus();
+  });
 }
 
 function closeScanner() {
@@ -230,10 +328,18 @@ function newSubmission() {
 
   studentInput.value = "";
   surnameInput.value = "";
+  // Keep Demi
   statusEl.innerText = "Ready";
+
+  lastLookupStudent = "";
+  surnameWasAutoFilled = false;
+
   studentInput.focus();
 }
 
+/* =========================
+   SUBMIT
+   ========================= */
 formEl.addEventListener("submit", async (e) => {
   e.preventDefault();
 
@@ -243,10 +349,16 @@ formEl.addEventListener("submit", async (e) => {
   }
 
   const payload = {
+    action: "submit",
     studentNumber: studentInput.value.trim(),
     surname: surnameInput.value.trim(),
     demi: demiInput.value.trim()
   };
+
+  if (!payload.studentNumber || !payload.surname || !payload.demi) {
+    statusEl.innerText = "Please complete all fields.";
+    return;
+  }
 
   statusEl.innerText = "Saving…";
 
@@ -260,6 +372,7 @@ formEl.addEventListener("submit", async (e) => {
     newSubmission();
 
   } catch (err) {
+    console.error(err);
     statusEl.innerText = "Save failed. Check network / API URL";
   }
 });
